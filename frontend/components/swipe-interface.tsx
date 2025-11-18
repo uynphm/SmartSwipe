@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion'
 import { Button } from '@/components/ui/button'
-import { X, Heart, RotateCcw, ChevronUp } from 'lucide-react'
+import { X, Heart, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Sample fashion items data
@@ -69,34 +69,63 @@ interface SwipeInterfaceProps {
 }
 
 export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
+  const [swipedItemIds, setSwipedItemIds] = useState<Set<string>>(new Set())
   const [currentIndex, setCurrentIndex] = useState(0)
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false)
   const [isDraggingDetails, setIsDraggingDetails] = useState(false)
 
-  const currentItem = fashionItems[currentIndex]
+  // Filter out swiped items
+  const availableItems = fashionItems.filter(item => !swipedItemIds.has(item.id))
+  // Reset index if current index is out of bounds
+  const safeIndex = currentIndex >= availableItems.length ? 0 : currentIndex
+  const currentItem = availableItems[safeIndex]
+
+  // Reset index when available items change
+  useEffect(() => {
+    if (currentIndex >= availableItems.length && availableItems.length > 0) {
+      setCurrentIndex(0)
+    }
+  }, [availableItems.length, currentIndex])
   const x = useMotionValue(0)
-  const rotate = useTransform(x, [-200, 0, 200], [-25, 0, 25])
-  const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0, 1, 1, 1, 0])
+  const rotate = useTransform(x, [-300, 0, 300], [-30, 0, 30])
+  const opacity = useTransform(x, [-300, -150, 0, 150, 300], [0, 0.5, 1, 0.5, 0])
 
   const handleDragEnd = (_: any, info: PanInfo) => {
     if (isDraggingDetails) return
     
-    if (Math.abs(info.offset.x) > 100) {
-      const dir = info.offset.x > 0 ? 'right' : 'left'
+    const swipeThreshold = 100
+    const velocityThreshold = 500
+    
+    // Check if swipe was significant enough (either by distance or velocity)
+    const isSwipe = Math.abs(info.offset.x) > swipeThreshold || Math.abs(info.velocity.x) > velocityThreshold
+    
+    if (isSwipe && currentItem) {
+      const dir = info.offset.x > 0 || info.velocity.x > 0 ? 'right' : 'left'
       setDirection(dir)
       
+      // Mark item as swiped
+      setSwipedItemIds(prev => new Set([...prev, currentItem.id]))
+      
+      // Right swipe = Like, Left swipe = Reject
       if (dir === 'right') {
         onLike(currentItem)
       }
+      // Left swipe doesn't call onLike, so it's rejected
       
+      // Animate card off screen, then move to next card
       setTimeout(() => {
-        setCurrentIndex((prev) => (prev + 1) % fashionItems.length)
+        // Move to next available item (or reset to 0 if no more items)
+        setCurrentIndex((prev) => {
+          const nextIndex = prev + 1
+          return nextIndex < availableItems.length ? nextIndex : 0
+        })
         setDirection(null)
         x.set(0)
         setIsDetailsExpanded(false)
-      }, 300)
+      }, 400) // Wait for animation to complete
     } else {
+      // Snap back if swipe wasn't strong enough
       x.set(0)
     }
   }
@@ -120,25 +149,47 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
   }
 
   const handleAction = (action: 'like' | 'dislike') => {
-    setDirection(action === 'like' ? 'right' : 'left')
+    if (!currentItem) return
     
+    const dir = action === 'like' ? 'right' : 'left'
+    setDirection(dir)
+    
+    // Mark item as swiped
+    setSwipedItemIds(prev => new Set([...prev, currentItem.id]))
+    
+    // Right swipe = Like, Left swipe = Reject
     if (action === 'like') {
       onLike(currentItem)
     }
+    // Dislike doesn't call onLike, so it's rejected
     
+    // Animate card off screen, then move to next card
     setTimeout(() => {
-      setCurrentIndex((prev) => (prev + 1) % fashionItems.length)
+      // Move to next available item (or reset to 0 if no more items)
+      setCurrentIndex((prev) => {
+        const nextIndex = prev + 1
+        return nextIndex < availableItems.length ? nextIndex : 0
+      })
       setDirection(null)
       x.set(0)
       setIsDetailsExpanded(false)
-    }, 300)
+    }, 400) // Wait for animation to complete
   }
 
   const handleUndo = () => {
-    if (currentIndex > 0) {
+    if (safeIndex > 0) {
       setCurrentIndex((prev) => prev - 1)
       x.set(0)
       setIsDetailsExpanded(false)
+      // Remove the last swiped item from the set
+      const lastSwipedItem = availableItems[safeIndex - 1]
+      if (lastSwipedItem) {
+        setSwipedItemIds(prev => {
+          const newSet = new Set(prev)
+          newSet.delete(lastSwipedItem.id)
+          return newSet
+        })
+      }
     }
   }
 
@@ -171,9 +222,14 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
             opacity,
           }}
           drag="x"
-          dragConstraints={{ left: 0, right: 0 }}
+          dragConstraints={{ left: -500, right: 500 }}
+          dragElastic={0.1}
           onDragEnd={handleDragEnd}
-          animate={direction ? { x: direction === 'left' ? -300 : 300 } : {}}
+          animate={direction ? { 
+            x: direction === 'left' ? -600 : 600,
+            opacity: 0
+          } : {}}
+          transition={direction ? { type: 'spring', stiffness: 300, damping: 30 } : {}}
         >
           <div className="relative h-full bg-card rounded-3xl overflow-hidden shadow-2xl">
             {/* Image */}
@@ -198,19 +254,26 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
               </motion.div>
 
               <motion.div
-                className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl cursor-pointer"
+                className={cn(
+                  "absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl cursor-pointer",
+                  isDetailsExpanded && "overflow-hidden"
+                )}
                 drag="y"
-                dragConstraints={{ top: 0, bottom: 0 }}
+                dragConstraints={{ top: -400, bottom: 0 }}
                 dragElastic={0.2}
+                dragMomentum={false}
                 onDragStart={() => setIsDraggingDetails(true)}
                 onDragEnd={handleDetailsDragEnd}
                 onClick={handleDetailsClick}
                 animate={{ 
-                  y: isDetailsExpanded ? -410 : 0,
-                  height: isDetailsExpanded ? 480 : 'auto'
+                  y: 0
                 }}
+                whileDrag={{ y: 0 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                style={{ touchAction: 'none' }}
+                style={{ 
+                  touchAction: 'none',
+                  maxHeight: isDetailsExpanded ? '450px' : undefined
+                }}
               >
                 {/* Pull indicator */}
                 <div className="flex justify-center pt-3 pb-2">
@@ -242,18 +305,14 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                 </div>
 
                 <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: isDetailsExpanded ? 1 : 0 }}
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ 
+                    opacity: isDetailsExpanded ? 1 : 0,
+                    height: isDetailsExpanded ? 'auto' : 0
+                  }}
                   className="px-6 pb-6 pt-2 border-t overflow-y-auto"
-                  style={{ maxHeight: isDetailsExpanded ? '300px' : '0px' }}
+                  style={{ maxHeight: isDetailsExpanded ? '350px' : '0px' }}
                 >
-                  {!isDetailsExpanded && (
-                    <div className="flex items-center gap-2 mb-4 text-muted-foreground">
-                      <ChevronUp className="w-5 h-5" />
-                      <span className="text-sm font-medium">Tap or pull up for more details</span>
-                    </div>
-                  )}
-                  
                   <div className="space-y-4">
                     <div>
                       <h3 className="font-semibold text-foreground mb-2">Description</h3>
@@ -334,7 +393,7 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
       {/* Progress indicator */}
       <div className="mt-8 text-center">
         <p className="text-muted-foreground text-sm font-medium">
-          {currentIndex + 1} / {fashionItems.length}
+          {availableItems.length > 0 ? `${safeIndex + 1} / ${availableItems.length}` : 'No more items!'}
         </p>
       </div>
     </div>

@@ -15,11 +15,31 @@ export default function Page() {
     // Load liked items from localStorage on mount
     const saved = localStorage.getItem('smartswipe_liked')
     if (saved) {
-      setLikedItems(JSON.parse(saved))
+      try {
+        const parsed = JSON.parse(saved)
+        // Remove duplicates by using a Map with id as key
+        const uniqueItems = Array.from(
+          new Map(parsed.map((item: any) => [item.id, item])).values()
+        )
+        setLikedItems(uniqueItems)
+        // Update localStorage with deduplicated items
+        if (uniqueItems.length !== parsed.length) {
+          localStorage.setItem('smartswipe_liked', JSON.stringify(uniqueItems))
+        }
+      } catch (error) {
+        console.error('Error loading liked items:', error)
+        setLikedItems([])
+      }
     }
   }, [])
 
   const handleLike = (item: any) => {
+    // Check if item already exists in likedItems to prevent duplicates
+    const alreadyLiked = likedItems.some(likedItem => likedItem.id === item.id)
+    if (alreadyLiked) {
+      return // Item already in wishlist, don't add again
+    }
+    
     const updated = [...likedItems, item]
     setLikedItems(updated)
     localStorage.setItem('smartswipe_liked', JSON.stringify(updated))
