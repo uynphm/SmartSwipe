@@ -213,9 +213,19 @@ export async function GET() {
   try {
     const items = scanImagesDirectory()
     
-    console.log(`Loaded ${items.length} items from dataset`)
+    // Group items by category
+    const itemsByCategory: Record<string, FashionItem[]> = {}
+    for (const item of items) {
+      const category = item.category.toLowerCase()
+      if (!itemsByCategory[category]) {
+        itemsByCategory[category] = []
+      }
+      itemsByCategory[category].push(item)
+    }
     
-    return NextResponse.json({ items })
+    console.log(`Loaded ${items.length} items from dataset across ${Object.keys(itemsByCategory).length} categories`)
+    
+    return NextResponse.json({ items, itemsByCategory })
   } catch (error) {
     console.error('Error scanning images:', error)
     return NextResponse.json(
