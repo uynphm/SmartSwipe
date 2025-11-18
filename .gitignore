@@ -49,3 +49,6 @@ next-env.d.ts
 # OS
 Thumbs.db
 
+backend/.env*
+frontend/.env*
+
