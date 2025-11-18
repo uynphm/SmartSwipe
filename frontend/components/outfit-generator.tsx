@@ -12,20 +12,42 @@ interface OutfitGeneratorProps {
 export function OutfitGenerator({ likedItems }: OutfitGeneratorProps) {
   const [currentOutfit, setCurrentOutfit] = useState<any[]>([])
   
-  // Categorize items
+  // Categorize items based on CSV categories
   const categorizeItems = () => {
     const categories = {
       tops: likedItems.filter(item => 
-        item.category === 'Tops' || item.tags?.includes('hoodie')
+        item.subCategory === 'Topwear' || 
+        item.category === 'Topwear' ||
+        item.articleType?.toLowerCase().includes('shirt') ||
+        item.articleType?.toLowerCase().includes('tshirt') ||
+        item.articleType?.toLowerCase().includes('top') ||
+        item.tags?.some((tag: string) => ['shirt', 'tshirt', 'top', 'hoodie'].includes(tag))
       ),
       bottoms: likedItems.filter(item => 
-        item.category === 'Bottoms' || item.tags?.includes('trousers')
+        item.subCategory === 'Bottomwear' ||
+        item.category === 'Bottomwear' ||
+        item.articleType?.toLowerCase().includes('jean') ||
+        item.articleType?.toLowerCase().includes('pant') ||
+        item.articleType?.toLowerCase().includes('trouser') ||
+        item.tags?.some((tag: string) => ['jean', 'pant', 'trouser'].includes(tag))
       ),
       outerwear: likedItems.filter(item => 
-        item.category === 'Outerwear' || item.tags?.includes('jacket') || item.tags?.includes('blazer')
+        item.subCategory === 'Outerwear' ||
+        item.category === 'Outerwear' ||
+        item.articleType?.toLowerCase().includes('jacket') ||
+        item.articleType?.toLowerCase().includes('blazer') ||
+        item.tags?.some((tag: string) => ['jacket', 'blazer'].includes(tag))
       ),
       dresses: likedItems.filter(item => 
-        item.category === 'Dresses' || item.tags?.includes('dress')
+        item.articleType?.toLowerCase().includes('dress') ||
+        item.tags?.some((tag: string) => tag.includes('dress'))
+      ),
+      accessories: likedItems.filter(item => 
+        item.masterCategory === 'Accessories' ||
+        item.category === 'Accessories' ||
+        item.articleType?.toLowerCase().includes('watch') ||
+        item.articleType?.toLowerCase().includes('bag') ||
+        item.articleType?.toLowerCase().includes('belt')
       )
     }
     return categories
@@ -42,6 +64,10 @@ export function OutfitGenerator({ likedItems }: OutfitGeneratorProps) {
       if (categories.outerwear.length > 0) {
         outfit.push(categories.outerwear[Math.floor(Math.random() * categories.outerwear.length)])
       }
+      // Add an accessory if available
+      if (categories.accessories.length > 0 && Math.random() > 0.6) {
+        outfit.push(categories.accessories[Math.floor(Math.random() * categories.accessories.length)])
+      }
     } else {
       // Top + Bottom outfit
       if (categories.tops.length > 0) {
@@ -52,6 +78,10 @@ export function OutfitGenerator({ likedItems }: OutfitGeneratorProps) {
       }
       if (categories.outerwear.length > 0 && Math.random() > 0.5) {
         outfit.push(categories.outerwear[Math.floor(Math.random() * categories.outerwear.length)])
+      }
+      // Add an accessory if available
+      if (categories.accessories.length > 0 && Math.random() > 0.6) {
+        outfit.push(categories.accessories[Math.floor(Math.random() * categories.accessories.length)])
       }
     }
 

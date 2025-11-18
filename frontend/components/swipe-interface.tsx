@@ -6,74 +6,54 @@ import { Button } from '@/components/ui/button'
 import { X, Heart, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-// Sample fashion items data
-const fashionItems = [
-  {
-    id: '1',
-    name: 'Oversized Blazer',
-    category: 'Outerwear',
-    price: '$129',
-    image: '/black-oversized-blazer-fashion.jpg',
-    brand: 'Modern Co.',
-    tags: ['formal', 'blazer', 'black']
-  },
-  {
-    id: '2',
-    name: 'Vintage Denim Jacket',
-    category: 'Outerwear',
-    price: '$89',
-    image: '/vintage-denim-jacket-fashion.jpg',
-    brand: 'RetroStyle',
-    tags: ['casual', 'denim', 'blue']
-  },
-  {
-    id: '3',
-    name: 'Silk Midi Dress',
-    category: 'Dresses',
-    price: '$159',
-    image: '/silk-midi-dress-fashion-elegant.jpg',
-    brand: 'Elegance',
-    tags: ['formal', 'dress', 'silk']
-  },
-  {
-    id: '4',
-    name: 'Cropped Hoodie',
-    category: 'Tops',
-    price: '$45',
-    image: '/cropped-hoodie-streetwear-fashion.jpg',
-    brand: 'Street Style',
-    tags: ['casual', 'hoodie', 'crop']
-  },
-  {
-    id: '5',
-    name: 'High-Waist Trousers',
-    category: 'Bottoms',
-    price: '$95',
-    image: '/high-waist-trousers-fashion.jpg',
-    brand: 'Chic Lines',
-    tags: ['formal', 'trousers', 'tailored']
-  },
-  {
-    id: '6',
-    name: 'Leather Biker Jacket',
-    category: 'Outerwear',
-    price: '$299',
-    image: '/leather-biker-jacket-fashion.jpg',
-    brand: 'Edge Wear',
-    tags: ['edgy', 'leather', 'jacket']
-  }
-]
+interface FashionItem {
+  id: string
+  name: string
+  category: string
+  price: string
+  image: string
+  brand: string
+  tags: string[]
+  gender?: string
+  masterCategory?: string
+  subCategory?: string
+  articleType?: string
+  baseColour?: string
+  season?: string
+  year?: string
+  usage?: string
+}
 
 interface SwipeInterfaceProps {
   onLike: (item: any) => void
 }
 
 export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
+  const [fashionItems, setFashionItems] = useState<FashionItem[]>([])
+  const [loading, setLoading] = useState(true)
   const [swipedItemIds, setSwipedItemIds] = useState<Set<string>>(new Set())
   const [currentIndex, setCurrentIndex] = useState(0)
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false)
   const [isDraggingDetails, setIsDraggingDetails] = useState(false)
+
+  // Fetch items from API
+  useEffect(() => {
+    async function fetchItems() {
+      try {
+        const response = await fetch('/api/items')
+        const data = await response.json()
+        if (data.items) {
+          setFashionItems(data.items)
+        }
+      } catch (error) {
+        console.error('Error fetching items:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchItems()
+  }, [])
 
   // Filter out swiped items
   const availableItems = fashionItems.filter(item => !swipedItemIds.has(item.id))
@@ -87,6 +67,35 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
       setCurrentIndex(0)
     }
   }, [availableItems.length, currentIndex])
+
+  // Preload images for current and next items
+  useEffect(() => {
+    if (availableItems.length === 0) return
+    
+    const imagesToPreload: string[] = []
+    
+    // Preload current item
+    if (currentItem?.image) {
+      imagesToPreload.push(`${currentItem.image}?w=400&q=95`)
+    }
+    
+    // Preload next 2 items
+    for (let i = 1; i <= 2; i++) {
+      const nextIndex = safeIndex + i
+      if (nextIndex < availableItems.length) {
+        const nextItem = availableItems[nextIndex]
+        if (nextItem?.image) {
+          imagesToPreload.push(`${nextItem.image}?w=400&q=95`)
+        }
+      }
+    }
+    
+    // Preload images
+    imagesToPreload.forEach((src) => {
+      const img = new Image()
+      img.src = src
+    })
+  }, [availableItems, safeIndex, currentItem])
   const x = useMotionValue(0)
   const rotate = useTransform(x, [-300, 0, 300], [-30, 0, 30])
   const opacity = useTransform(x, [-300, -150, 0, 150, 300], [0, 0.5, 1, 0.5, 0])
@@ -193,6 +202,14 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[600px]">
+        <p className="text-muted-foreground">Loading items...</p>
+      </div>
+    )
+  }
+
   if (!currentItem) {
     return (
       <div className="flex items-center justify-center h-[600px]">
@@ -233,11 +250,26 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
         >
           <div className="relative h-full bg-card rounded-3xl overflow-hidden shadow-2xl">
             {/* Image */}
-            <div className="h-full relative overflow-hidden">
+            <div className="h-full relative overflow-hidden bg-muted">
               <img
-                src={currentItem.image || "/placeholder.svg"}
+                src={currentItem.image ? `${currentItem.image}?w=400&q=95` : "/placeholder.svg"}
                 alt={currentItem.name}
                 className="w-full h-full object-cover"
+                style={{ 
+                  imageRendering: 'auto',
+                  objectFit: 'cover',
+                  backfaceVisibility: 'hidden',
+                  transform: 'translateZ(0)',
+                }}
+                onError={(e) => {
+                  // Fallback to placeholder if image fails to load
+                  const target = e.target as HTMLImageElement
+                  if (target.src !== '/placeholder.svg') {
+                    target.src = '/placeholder.svg'
+                  }
+                }}
+                loading="eager"
+                decoding="sync"
               />
               
               {/* Like/Dislike overlay */}
@@ -317,26 +349,63 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                     <div>
                       <h3 className="font-semibold text-foreground mb-2">Description</h3>
                       <p className="text-sm text-muted-foreground leading-relaxed">
-                        This {currentItem.name.toLowerCase()} features premium materials and modern design. 
-                        Perfect for {currentItem.category.toLowerCase()} occasions and versatile styling options.
+                        {currentItem.name} - A stylish {currentItem.articleType?.toLowerCase() || currentItem.category.toLowerCase()} 
+                        {currentItem.baseColour ? ` in ${currentItem.baseColour.toLowerCase()}` : ''} 
+                        {currentItem.season ? ` perfect for ${currentItem.season.toLowerCase()}` : ''} 
+                        {currentItem.usage ? ` ${currentItem.usage.toLowerCase()} wear` : ''}.
+                        {currentItem.gender ? ` Designed for ${currentItem.gender}.` : ''}
                       </p>
                     </div>
 
                     <div>
                       <h3 className="font-semibold text-foreground mb-2">Details</h3>
                       <div className="space-y-2 text-sm text-muted-foreground">
+                        {currentItem.gender && (
+                          <div className="flex justify-between">
+                            <span>Gender</span>
+                            <span className="font-medium text-foreground">{currentItem.gender}</span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span>Category</span>
                           <span className="font-medium text-foreground">{currentItem.category}</span>
                         </div>
-                        <div className="flex justify-between">
-                          <span>Brand</span>
-                          <span className="font-medium text-foreground">{currentItem.brand}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Material</span>
-                          <span className="font-medium text-foreground">Premium Quality</span>
-                        </div>
+                        {currentItem.articleType && (
+                          <div className="flex justify-between">
+                            <span>Type</span>
+                            <span className="font-medium text-foreground">{currentItem.articleType}</span>
+                          </div>
+                        )}
+                        {currentItem.brand && (
+                          <div className="flex justify-between">
+                            <span>Brand</span>
+                            <span className="font-medium text-foreground">{currentItem.brand}</span>
+                          </div>
+                        )}
+                        {currentItem.baseColour && (
+                          <div className="flex justify-between">
+                            <span>Color</span>
+                            <span className="font-medium text-foreground">{currentItem.baseColour}</span>
+                          </div>
+                        )}
+                        {currentItem.season && (
+                          <div className="flex justify-between">
+                            <span>Season</span>
+                            <span className="font-medium text-foreground">{currentItem.season}</span>
+                          </div>
+                        )}
+                        {currentItem.year && (
+                          <div className="flex justify-between">
+                            <span>Year</span>
+                            <span className="font-medium text-foreground">{currentItem.year}</span>
+                          </div>
+                        )}
+                        {currentItem.usage && (
+                          <div className="flex justify-between">
+                            <span>Usage</span>
+                            <span className="font-medium text-foreground">{currentItem.usage}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
