@@ -10,14 +10,9 @@ interface FashionItem {
   image: string
   brand: string
   tags: string[]
-  gender?: string
-  masterCategory?: string
-  subCategory?: string
-  articleType?: string
-  baseColour?: string
-  season?: string
-  year?: string
-  usage?: string
+  style?: string
+  material?: string
+  description?: string
 }
 
 // Base price ranges for each category (min, max)
@@ -71,6 +66,70 @@ const categoryNames: Record<string, string> = {
   't-shirt': 'T-Shirt',
 }
 
+// Parse CSV content
+function parseCSV(csvContent: string): Map<string, any> {
+  const csvMap = new Map()
+  const lines = csvContent.trim().split('\n')
+  if (lines.length < 2) return csvMap
+  
+  const headers = lines[0].split(',').map(h => h.trim())
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+    
+    // Parse CSV line (handle quoted fields with commas)
+    const values: string[] = []
+    let current = ''
+    let inQuotes = false
+    
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j]
+      if (char === '"') {
+        inQuotes = !inQuotes
+      } else if (char === ',' && !inQuotes) {
+        values.push(current.trim())
+        current = ''
+      } else {
+        current += char
+      }
+    }
+    values.push(current.trim()) // Add last value
+    
+    if (values.length < headers.length) continue
+    
+    const row: any = {}
+    headers.forEach((header, index) => {
+      row[header] = values[index] || ''
+    })
+    
+    // Use image_id as key (format: uuid)
+    const imageId = row.image_id
+    if (imageId) {
+      csvMap.set(imageId, row)
+    }
+  }
+  
+  return csvMap
+}
+
+// Load CSV data for a category
+function loadCSVData(category: string, datasetPath: string): Map<string, any> {
+  const csvPath = join(datasetPath, `${category}_analysis.csv`)
+  
+  if (!existsSync(csvPath)) {
+    return new Map()
+  }
+  
+  try {
+    const csvContent = readFileSync(csvPath, 'utf-8')
+    return parseCSV(csvContent)
+  } catch (error) {
+    console.error(`Error reading CSV for ${category}:`, error)
+    return new Map()
+  }
+}
+
 function scanImagesDirectory(): FashionItem[] {
   const items: FashionItem[] = []
   
@@ -97,41 +156,53 @@ function scanImagesDirectory(): FashionItem[] {
   const categories = ['dress', 'hat', 'longsleeve', 'outwear', 'pants', 'shirt', 'shoes', 'shorts', 'skirt', 't-shirt']
   
   for (const category of categories) {
-    const categoryPath = join(datasetPath, category)
+    // Load CSV data for this category - CSV is the source of truth
+    const csvData = loadCSVData(category, datasetPath)
     
-    if (!existsSync(categoryPath)) continue
+    if (csvData.size === 0) continue
     
-    try {
-      const files = readdirSync(categoryPath)
-      const imageFiles = files.filter(file => file.toLowerCase().endsWith('.jpg') || file.toLowerCase().endsWith('.jpeg'))
+    // Iterate through CSV entries (not image files)
+    for (const [uuid, csvRow] of csvData.entries()) {
+      // Verify image exists
+      const categoryPath = join(datasetPath, category)
+      const imageFile = `${uuid}.jpg`
+      const imagePath = join(categoryPath, imageFile)
       
-      for (const imageFile of imageFiles) {
-        const imagePath = join(categoryPath, imageFile)
-        const stats = statSync(imagePath)
-        
-        // Skip if not a file or too small
-        if (!stats.isFile() || stats.size < 1000) continue
-        
-        const uuid = imageFile.replace(/\.(jpg|jpeg)$/i, '')
-        const imageId = `${category}/${uuid}`
-        
-        const item: FashionItem = {
-          id: imageId,
-          name: `${categoryNames[category] || category} - ${uuid.substring(0, 8)}`,
-          category: categoryNames[category] || category,
-          price: generatePrice(category, uuid),
-          image: `/api/images/${imageId}`,
-          brand: 'Fashion Brand',
-          tags: [category, 'fashion'],
-          articleType: category,
-          masterCategory: 'Apparel',
-          subCategory: category,
+      if (!existsSync(imagePath)) {
+        // Try .jpeg extension
+        const imagePathJpeg = join(categoryPath, `${uuid}.jpeg`)
+        if (!existsSync(imagePathJpeg)) {
+          continue // Skip if image doesn't exist
         }
-        
-        items.push(item)
       }
-    } catch (error) {
-      console.error(`Error reading category ${category}:`, error)
+      
+      const imageId = `${category}/${uuid}`
+      
+      // Parse tags from CSV (comma-separated string)
+      const tagsString = csvRow.tags || ''
+      const tags = tagsString ? tagsString.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [category, 'fashion']
+      
+      // Use description from CSV for name, or generate from category
+      const description = csvRow.description || ''
+      const name = description 
+        ? `${categoryNames[category] || category} - ${description.substring(0, 60)}`
+        : `${categoryNames[category] || category} - ${uuid.substring(0, 8)}`
+      
+      // Use exact CSV values
+      const item: FashionItem = {
+        id: imageId,
+        name: name.length > 80 ? name.substring(0, 77) + '...' : name,
+        category: csvRow.category || categoryNames[category] || category,
+        price: generatePrice(category, uuid),
+        image: `/api/images/${imageId}`,
+        brand: csvRow.brand || 'Fashion Brand',
+        tags: tags,
+        style: csvRow.style || '',
+        material: csvRow.material || '',
+        description: description,
+      }
+      
+      items.push(item)
     }
   }
   
@@ -142,9 +213,19 @@ export async function GET() {
   try {
     const items = scanImagesDirectory()
     
-    console.log(`Loaded ${items.length} items from dataset`)
+    // Group items by category
+    const itemsByCategory: Record<string, FashionItem[]> = {}
+    for (const item of items) {
+      const category = item.category.toLowerCase()
+      if (!itemsByCategory[category]) {
+        itemsByCategory[category] = []
+      }
+      itemsByCategory[category].push(item)
+    }
     
-    return NextResponse.json({ items })
+    console.log(`Loaded ${items.length} items from dataset across ${Object.keys(itemsByCategory).length} categories`)
+    
+    return NextResponse.json({ items, itemsByCategory })
   } catch (error) {
     console.error('Error scanning images:', error)
     return NextResponse.json(

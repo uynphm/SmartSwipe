@@ -98,7 +98,7 @@ export default function Page() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {view === 'swipe' && <SwipeInterface onLike={handleLike} />}
+        {view === 'swipe' && <SwipeInterface onLike={handleLike} wishlist={likedItems} />}
         {view === 'wishlist' && (
           <Wishlist items={likedItems} onRemove={handleRemoveFromWishlist} />
         )}
