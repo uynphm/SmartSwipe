@@ -343,13 +343,6 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
           <Heart className="w-7 h-7 fill-current" strokeWidth={0} />
         </Button>
       </div>
-
-      {/* Progress indicator */}
-      <div className="mt-8 text-center">
-        <p className="text-muted-foreground text-sm font-medium">
-          {availableItems.length > 0 ? `${safeIndex + 1} / ${availableItems.length}` : 'No more items!'}
-        </p>
-      </div>
     </div>
   )
 }
