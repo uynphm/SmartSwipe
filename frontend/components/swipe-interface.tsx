@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { X, Heart, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -14,14 +14,9 @@ interface FashionItem {
   image: string
   brand: string
   tags: string[]
-  gender?: string
-  masterCategory?: string
-  subCategory?: string
-  articleType?: string
-  baseColour?: string
-  season?: string
-  year?: string
-  usage?: string
+  style?: string
+  material?: string
+  description?: string
 }
 
 interface SwipeInterfaceProps {
@@ -35,7 +30,6 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false)
-  const [isDraggingDetails, setIsDraggingDetails] = useState(false)
 
   // Fetch items from API
   useEffect(() => {
@@ -96,62 +90,6 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
       img.src = src
     })
   }, [availableItems, safeIndex, currentItem])
-  const x = useMotionValue(0)
-  const rotate = useTransform(x, [-300, 0, 300], [-30, 0, 30])
-  const opacity = useTransform(x, [-300, -150, 0, 150, 300], [0, 0.5, 1, 0.5, 0])
-
-  const handleDragEnd = (_: any, info: PanInfo) => {
-    if (isDraggingDetails) return
-    
-    const swipeThreshold = 100
-    const velocityThreshold = 500
-    
-    // Check if swipe was significant enough (either by distance or velocity)
-    const isSwipe = Math.abs(info.offset.x) > swipeThreshold || Math.abs(info.velocity.x) > velocityThreshold
-    
-    if (isSwipe && currentItem) {
-      const dir = info.offset.x > 0 || info.velocity.x > 0 ? 'right' : 'left'
-      setDirection(dir)
-      
-      // Mark item as swiped
-      setSwipedItemIds(prev => new Set([...prev, currentItem.id]))
-      
-      // Right swipe = Like, Left swipe = Reject
-      if (dir === 'right') {
-        onLike(currentItem)
-      }
-      // Left swipe doesn't call onLike, so it's rejected
-      
-      // Animate card off screen, then move to next card
-      setTimeout(() => {
-        // Move to next available item (or reset to 0 if no more items)
-        setCurrentIndex((prev) => {
-          const nextIndex = prev + 1
-          return nextIndex < availableItems.length ? nextIndex : 0
-        })
-        setDirection(null)
-        x.set(0)
-        setIsDetailsExpanded(false)
-      }, 400) // Wait for animation to complete
-    } else {
-      // Snap back if swipe wasn't strong enough
-      x.set(0)
-    }
-  }
-
-  const handleDetailsDragEnd = (_: any, info: PanInfo) => {
-    setIsDraggingDetails(false)
-    
-    if (isDetailsExpanded) {
-      if (info.offset.y > 50) {
-        setIsDetailsExpanded(false)
-      }
-    } else {
-      if (info.offset.y < -50) {
-        setIsDetailsExpanded(true)
-      }
-    }
-  }
 
   const handleDetailsClick = () => {
     setIsDetailsExpanded(!isDetailsExpanded)
@@ -166,11 +104,10 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
     // Mark item as swiped
     setSwipedItemIds(prev => new Set([...prev, currentItem.id]))
     
-    // Right swipe = Like, Left swipe = Reject
+    // Right = Like, Left = Reject
     if (action === 'like') {
       onLike(currentItem)
     }
-    // Dislike doesn't call onLike, so it's rejected
     
     // Animate card off screen, then move to next card
     setTimeout(() => {
@@ -180,7 +117,6 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
         return nextIndex < availableItems.length ? nextIndex : 0
       })
       setDirection(null)
-      x.set(0)
       setIsDetailsExpanded(false)
     }, 400) // Wait for animation to complete
   }
@@ -188,7 +124,6 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
   const handleUndo = () => {
     if (safeIndex > 0) {
       setCurrentIndex((prev) => prev - 1)
-      x.set(0)
       setIsDetailsExpanded(false)
       // Remove the last swiped item from the set
       const lastSwipedItem = availableItems[safeIndex - 1]
@@ -231,23 +166,19 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
         )}
 
         {/* Main card */}
-        <motion.div
-          className="absolute inset-0 cursor-grab active:cursor-grabbing"
-          style={{
-            x,
-            rotate,
-            opacity,
-          }}
-          drag="x"
-          dragConstraints={{ left: -500, right: 500 }}
-          dragElastic={0.1}
-          onDragEnd={handleDragEnd}
-          animate={direction ? { 
-            x: direction === 'left' ? -600 : 600,
-            opacity: 0
-          } : {}}
-          transition={direction ? { type: 'spring', stiffness: 300, damping: 30 } : {}}
-        >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentItem.id}
+            className="absolute inset-0"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={direction ? { 
+              x: direction === 'left' ? -600 : 600,
+              opacity: 0,
+              scale: 0.8
+            } : { opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+          >
           <div className="relative h-full bg-card rounded-3xl overflow-hidden shadow-2xl">
             {/* Image */}
             <div className="h-full relative overflow-hidden bg-muted">
@@ -286,25 +217,13 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                 {direction === 'right' ? 'LIKED!' : direction === 'left' ? 'NOPE' : ''}
               </motion.div>
 
-              <motion.div
+              <div
                 className={cn(
                   "absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl cursor-pointer",
                   isDetailsExpanded && "overflow-hidden"
                 )}
-                drag="y"
-                dragConstraints={{ top: -400, bottom: 0 }}
-                dragElastic={0.2}
-                dragMomentum={false}
-                onDragStart={() => setIsDraggingDetails(true)}
-                onDragEnd={handleDetailsDragEnd}
                 onClick={handleDetailsClick}
-                animate={{ 
-                  y: 0
-                }}
-                whileDrag={{ y: 0 }}
-                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                 style={{ 
-                  touchAction: 'none',
                   maxHeight: isDetailsExpanded ? '450px' : undefined
                 }}
               >
@@ -316,27 +235,15 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                   />
                 </div>
 
-                {/* Basic info - always visible */}
+                {/* Basic info - only category and price visible */}
                 <div className="px-6 pb-4">
-                  <div className="flex items-start justify-between mb-1">
-                    <div>
-                      <h2 className="text-2xl font-bold text-foreground">{currentItem.name}</h2>
-                      <p className="text-muted-foreground text-sm">{currentItem.brand}</p>
-                    </div>
+                  <div className="flex items-start justify-between">
+                    <h2 className="text-2xl font-bold text-foreground">{currentItem.category.toUpperCase()}</h2>
                     <span className="text-2xl font-bold text-primary">{currentItem.price}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {currentItem.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-3 py-1 bg-secondary text-secondary-foreground text-xs font-medium rounded-full"
-                      >
-                        {tag}
-                      </span>
-                    ))}
                   </div>
                 </div>
 
+                {/* All details - shown when expanded */}
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ 
@@ -347,88 +254,65 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                   style={{ maxHeight: isDetailsExpanded ? '350px' : '0px' }}
                 >
                   <div className="space-y-4">
-                    <div>
-                      <h3 className="font-semibold text-foreground mb-2">Description</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">
-                        {currentItem.name} - A stylish {currentItem.articleType?.toLowerCase() || currentItem.category.toLowerCase()} 
-                        {currentItem.baseColour ? ` in ${currentItem.baseColour.toLowerCase()}` : ''} 
-                        {currentItem.season ? ` perfect for ${currentItem.season.toLowerCase()}` : ''} 
-                        {currentItem.usage ? ` ${currentItem.usage.toLowerCase()} wear` : ''}.
-                        {currentItem.gender ? ` Designed for ${currentItem.gender}.` : ''}
-                      </p>
-                    </div>
+                    {currentItem.description && (
+                      <div>
+                        <h3 className="font-semibold text-foreground mb-2">Description</h3>
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                          {currentItem.description}
+                        </p>
+                      </div>
+                    )}
 
                     <div>
                       <h3 className="font-semibold text-foreground mb-2">Details</h3>
                       <div className="space-y-2 text-sm text-muted-foreground">
-                        {currentItem.gender && (
-                          <div className="flex justify-between">
-                            <span>Gender</span>
-                            <span className="font-medium text-foreground">{currentItem.gender}</span>
-                          </div>
-                        )}
                         <div className="flex justify-between">
                           <span>Category</span>
                           <span className="font-medium text-foreground">{currentItem.category}</span>
                         </div>
-                        {currentItem.articleType && (
-                          <div className="flex justify-between">
-                            <span>Type</span>
-                            <span className="font-medium text-foreground">{currentItem.articleType}</span>
-                          </div>
-                        )}
                         {currentItem.brand && (
                           <div className="flex justify-between">
                             <span>Brand</span>
                             <span className="font-medium text-foreground">{currentItem.brand}</span>
                           </div>
                         )}
-                        {currentItem.baseColour && (
+                        {currentItem.style && (
                           <div className="flex justify-between">
-                            <span>Color</span>
-                            <span className="font-medium text-foreground">{currentItem.baseColour}</span>
+                            <span>Style</span>
+                            <span className="font-medium text-foreground">{currentItem.style}</span>
                           </div>
                         )}
-                        {currentItem.season && (
+                        {currentItem.material && (
                           <div className="flex justify-between">
-                            <span>Season</span>
-                            <span className="font-medium text-foreground">{currentItem.season}</span>
-                          </div>
-                        )}
-                        {currentItem.year && (
-                          <div className="flex justify-between">
-                            <span>Year</span>
-                            <span className="font-medium text-foreground">{currentItem.year}</span>
-                          </div>
-                        )}
-                        {currentItem.usage && (
-                          <div className="flex justify-between">
-                            <span>Usage</span>
-                            <span className="font-medium text-foreground">{currentItem.usage}</span>
+                            <span>Material</span>
+                            <span className="font-medium text-foreground">{currentItem.material}</span>
                           </div>
                         )}
                       </div>
                     </div>
 
-                    <div>
-                      <h3 className="font-semibold text-foreground mb-2">Available Sizes</h3>
-                      <div className="flex gap-2">
-                        {['XS', 'S', 'M', 'L', 'XL'].map((size) => (
-                          <div
-                            key={size}
-                            className="w-12 h-12 rounded-full border-2 border-border flex items-center justify-center text-sm font-medium text-foreground hover:border-primary hover:text-primary transition-colors"
-                          >
-                            {size}
-                          </div>
-                        ))}
+                    {currentItem.tags && currentItem.tags.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-foreground mb-2">Tags</h3>
+                        <div className="flex flex-wrap gap-2">
+                          {currentItem.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-3 py-1 bg-secondary text-secondary-foreground text-xs font-medium rounded-full"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}  
                   </div>
                 </motion.div>
-              </motion.div>
+              </div>
             </div>
           </div>
         </motion.div>
+        </AnimatePresence>
       </div>
 
       <div className="flex items-center justify-center gap-6">
