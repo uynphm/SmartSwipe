@@ -76,7 +76,7 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
     
     // Preload current item
     if (currentItem?.image) {
-      imagesToPreload.push(`${currentItem.image}?w=400&q=95`)
+      imagesToPreload.push(`${currentItem.image}`)
     }
     
     // Preload next 2 items
@@ -85,7 +85,7 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
       if (nextIndex < availableItems.length) {
         const nextItem = availableItems[nextIndex]
         if (nextItem?.image) {
-          imagesToPreload.push(`${nextItem.image}?w=400&q=95`)
+          imagesToPreload.push(`${nextItem.image}`)
         }
       }
     }
@@ -252,14 +252,15 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
             {/* Image */}
             <div className="h-full relative overflow-hidden bg-muted">
               <img
-                src={currentItem.image ? `${currentItem.image}?w=400&q=95` : "/placeholder.svg"}
+                src={currentItem.image ? `${currentItem.image}` : "/placeholder.svg"}
                 alt={currentItem.name}
                 className="w-full h-full object-cover"
                 style={{ 
                   imageRendering: 'auto',
                   objectFit: 'cover',
-                  backfaceVisibility: 'hidden',
+                  willChange: 'transform',
                   transform: 'translateZ(0)',
+                  backfaceVisibility: 'hidden',
                 }}
                 onError={(e) => {
                   // Fallback to placeholder if image fails to load
@@ -269,7 +270,7 @@ export function SwipeInterface({ onLike }: SwipeInterfaceProps) {
                   }
                 }}
                 loading="eager"
-                decoding="sync"
+                decoding="async"
               />
               
               {/* Like/Dislike overlay */}
