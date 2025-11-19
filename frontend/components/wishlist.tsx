@@ -54,13 +54,10 @@ export function Wishlist({ items, onRemove }: WishlistProps) {
               </Button>
             </div>
             <div className="p-4 bg-white">
-              <h3 className="font-semibold text-foreground mb-1">{item.name}</h3>
+              <h3 className="font-semibold text-foreground mb-1">{item.category}</h3>
               <p className="text-sm text-muted-foreground mb-2">{item.brand}</p>
               <div className="flex items-center justify-between">
                 <span className="text-lg font-bold text-primary">{item.price}</span>
-                <Button size="sm" className="bg-foreground text-background hover:bg-foreground/90 rounded-full">
-                  Shop Now
-                </Button>
               </div>
             </div>
           </motion.div>
