@@ -10,6 +10,7 @@ import { Heart, Sparkles, Home } from 'lucide-react'
 export default function Page() {
   const [view, setView] = useState<'swipe' | 'wishlist' | 'outfits'>('swipe')
   const [likedItems, setLikedItems] = useState<any[]>([])
+  const [rejectedItems, setRejectedItems] = useState<any[]>([])
 
   useEffect(() => {
     // Load liked items from localStorage on mount
@@ -31,6 +32,24 @@ export default function Page() {
         setLikedItems([])
       }
     }
+
+    // Load rejected items from localStorage on mount
+    const savedRejected = localStorage.getItem('smartswipe_rejected')
+    if (savedRejected) {
+      try {
+        const parsed = JSON.parse(savedRejected)
+        const uniqueItems = Array.from(
+          new Map(parsed.map((item: any) => [item.id, item])).values()
+        )
+        setRejectedItems(uniqueItems)
+        if (uniqueItems.length !== parsed.length) {
+          localStorage.setItem('smartswipe_rejected', JSON.stringify(uniqueItems))
+        }
+      } catch (error) {
+        console.error('Error loading rejected items:', error)
+        setRejectedItems([])
+      }
+    }
   }, [])
 
   const handleLike = (item: any) => {
@@ -49,6 +68,18 @@ export default function Page() {
     const updated = likedItems.filter(item => item.id !== itemId)
     setLikedItems(updated)
     localStorage.setItem('smartswipe_liked', JSON.stringify(updated))
+  }
+
+  const handleReject = (item: any) => {
+    // Check if item already exists in rejectedItems to prevent duplicates
+    const alreadyRejected = rejectedItems.some(rejectedItem => rejectedItem.id === item.id)
+    if (alreadyRejected) {
+      return // Item already rejected, don't add again
+    }
+    
+    const updated = [...rejectedItems, item]
+    setRejectedItems(updated)
+    localStorage.setItem('smartswipe_rejected', JSON.stringify(updated))
   }
 
   return (
@@ -98,7 +129,7 @@ export default function Page() {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
-        {view === 'swipe' && <SwipeInterface onLike={handleLike} wishlist={likedItems} />}
+        {view === 'swipe' && <SwipeInterface onLike={handleLike} onReject={handleReject} wishlist={likedItems} rejectedItems={rejectedItems} />}
         {view === 'wishlist' && (
           <Wishlist items={likedItems} onRemove={handleRemoveFromWishlist} />
         )}
