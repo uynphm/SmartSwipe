@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { X, Heart, RotateCcw } from 'lucide-react'
@@ -21,10 +21,12 @@ interface FashionItem {
 
 interface SwipeInterfaceProps {
   onLike: (item: any) => void
+  onReject?: (item: any) => void
   wishlist?: FashionItem[]
+  rejectedItems?: FashionItem[]
 }
 
-export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
+export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems = [] }: SwipeInterfaceProps) {
   const [fashionItems, setFashionItems] = useState<FashionItem[]>([])
   const [itemsByCategory, setItemsByCategory] = useState<Record<string, FashionItem[]>>({})
   const [loading, setLoading] = useState(true)
@@ -38,8 +40,17 @@ export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessingAction, setIsProcessingAction] = useState(false)
 
-  // Load 3 recommended items for a category
+  // Load all items for a category, sorted by similarity score
   const loadCategoryItems = useCallback(async (category: string, allItems: FashionItem[]) => {
+    // Filter out already swiped items first
+    const availableItems = allItems.filter(item => !swipedItemIds.has(item.id))
+    
+    if (availableItems.length === 0) {
+      setItemsInCurrentCategory([])
+      return
+    }
+
+    // Don't use cache - recalculate similarity for each category
     setIsAnalyzing(true)
     
     try {
@@ -49,55 +60,95 @@ export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          allItemsInCategory: allItems,
+          allItemsInCategory: availableItems, // Only send available items
           wishlist: wishlist,
-          category: category,
+          rejectedItems: rejectedItems, // Include rejected items to avoid similar ones
+          category: category, // Include category to ensure recalculation
         }),
       })
 
       if (!response.ok) {
         console.error('Failed to get recommendations')
-        // Fallback to random 3 items (filter out already swiped)
-        const availableItems = allItems.filter(item => !swipedItemIds.has(item.id))
+        // Fallback to random order (availableItems already filtered above)
         const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
-        setItemsInCurrentCategory(shuffled.slice(0, 3))
+        setItemsInCurrentCategory(shuffled)
         setIsAnalyzing(false)
         return
       }
 
       const data = await response.json()
-      const { recommendedIds } = data
+      const { items } = data // Array of { id, score }
 
-      // Map IDs to items and filter out already swiped items
-      const itemMap = new Map(allItems.map((item: FashionItem) => [item.id, item]))
-      const selectedItems: FashionItem[] = []
+      if (!Array.isArray(items)) {
+        // Fallback if API format is wrong
+        const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
+        setItemsInCurrentCategory(shuffled)
+        setIsAnalyzing(false)
+        return
+      }
+
+      // Map scored items back to full item objects
+      const itemMap = new Map(availableItems.map((item: FashionItem) => [item.id, item]))
+      const sortedItems: FashionItem[] = []
+      const autoRejectedIds: string[] = []
       
-      for (const id of recommendedIds) {
+      // Threshold for automatic rejection
+      // Items with score below this threshold are automatically rejected
+      const REJECTION_THRESHOLD = 0.3 // Adjust this value (0.0 to 1.0)
+      
+      // Items are already sorted by score from API (highest first)
+      // Only include items that have meaningful similarity scores (score > threshold)
+      // Items below threshold are automatically rejected
+      for (const { id, score } of items) {
         const item = itemMap.get(id)
-        // Double-check: only add if item exists and hasn't been swiped
-        if (item && !swipedItemIds.has(item.id)) {
-          selectedItems.push(item)
+        if (!item || swipedItemIds.has(item.id)) continue
+        
+        // Automatically reject items with low scores
+        if (score < REJECTION_THRESHOLD) {
+          autoRejectedIds.push(item.id)
+          // Automatically add to rejected items if onReject callback exists
+          if (onReject && wishlist.length > 0) {
+            // Only auto-reject if user has a wishlist (meaningful scores)
+            onReject(item)
+          }
+          continue
+        }
+        
+        // Only add items with scores above threshold
+        if (score > 0) {
+          sortedItems.push(item)
         }
       }
-
-      // If we don't have enough items after filtering, fill with remaining available items
-      if (selectedItems.length < 3 && selectedItems.length < allItems.length) {
-        const remainingItems = allItems.filter(
-          item => !swipedItemIds.has(item.id) && !selectedItems.some(selected => selected.id === item.id)
-        )
-        const needed = Math.min(3 - selectedItems.length, remainingItems.length)
-        selectedItems.push(...remainingItems.slice(0, needed))
+      
+      if (autoRejectedIds.length > 0) {
+        console.log(`[loadCategoryItems] Auto-rejected ${autoRejectedIds.length} items with score < ${REJECTION_THRESHOLD}`)
       }
 
-      setItemsInCurrentCategory(selectedItems)
+      // If no wishlist items, show all items in random order
+      // If wishlist exists but no good matches found, show top items anyway
+      if (sortedItems.length === 0 && wishlist.length > 0) {
+        // Fallback: show items even with low scores if no good matches
+        for (const { id, score } of items) {
+          const item = itemMap.get(id)
+          if (item && !swipedItemIds.has(item.id) && score > -1) {
+            sortedItems.push(item)
+          }
+        }
+      } else if (sortedItems.length === 0 && wishlist.length === 0) {
+        // No wishlist: show all items in random order
+        const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
+        sortedItems.push(...shuffled)
+      }
+
+      console.log(`[loadCategoryItems] Category: ${category}, Setting ${sortedItems.length} items sorted by similarity score`)
+      setItemsInCurrentCategory(sortedItems)
       setCurrentIndex(0)
       setDirection(null) // Clear direction when loading new items
     } catch (error) {
       console.error('Error getting recommendations:', error)
-      // Fallback to random 3 items (filter out already swiped)
-      const availableItems = allItems.filter(item => !swipedItemIds.has(item.id))
+      // Fallback to random order (availableItems already filtered above)
       const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
-      setItemsInCurrentCategory(shuffled.slice(0, 3))
+      setItemsInCurrentCategory(shuffled)
       setDirection(null) // Clear direction on error too
     } finally {
       setIsAnalyzing(false)
@@ -135,6 +186,28 @@ export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
     }
     fetchItems()
   }, [loadCategoryItems])
+
+  // Recalculate recommendations when wishlist or rejected items change (real-time updates)
+  // Use refs to track previous lengths to avoid unnecessary recalculations
+  const prevWishlistLengthRef = useRef(wishlist.length)
+  const prevRejectedLengthRef = useRef(rejectedItems.length)
+  
+  useEffect(() => {
+    // Only recalculate if wishlist or rejected items length actually changed
+    const wishlistChanged = prevWishlistLengthRef.current !== wishlist.length
+    const rejectedChanged = prevRejectedLengthRef.current !== rejectedItems.length
+    
+    if ((wishlistChanged || rejectedChanged) && currentCategory && allItemsInCategory.length > 0 && !isAnalyzing) {
+      console.log('[useEffect] Wishlist or rejected items changed, recalculating recommendations for current category')
+      prevWishlistLengthRef.current = wishlist.length
+      prevRejectedLengthRef.current = rejectedItems.length
+      loadCategoryItems(currentCategory, allItemsInCategory)
+    } else if (wishlistChanged || rejectedChanged) {
+      // Update refs even if we don't recalculate
+      prevWishlistLengthRef.current = wishlist.length
+      prevRejectedLengthRef.current = rejectedItems.length
+    }
+  }, [wishlist.length, rejectedItems.length, currentCategory, allItemsInCategory.length, isAnalyzing]) // Recalculate when wishlist or rejected items change
 
   // Get available items for current category (not swiped)
   const availableItemsInCategory = itemsInCurrentCategory.filter(item => !swipedItemIds.has(item.id))
@@ -273,6 +346,8 @@ export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
     // Right = Like, Left = Reject
     if (action === 'like') {
       onLike(currentItem)
+    } else if (action === 'dislike' && onReject) {
+      onReject(currentItem)
     }
     
     // Animate card off screen, then move to next card
@@ -356,9 +431,6 @@ export function SwipeInterface({ onLike, wishlist = [] }: SwipeInterfaceProps) {
         <div className="mb-4 text-center">
           <p className="text-sm text-muted-foreground">
             Category: <span className="font-semibold text-foreground">{currentCategory.toUpperCase()}</span>
-            {availableItemsInCategory.length > 0 && (
-              <span className="ml-2">({availableItemsInCategory.length} items remaining)</span>
-            )}
           </p>
         </div>
       )}

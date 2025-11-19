@@ -51,4 +51,5 @@ Thumbs.db
 
 backend/.env*
 frontend/.env*
+dataset/image_features.json
 
