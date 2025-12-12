@@ -189,7 +189,10 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
 
       setItemsInCurrentCategory(sortedItems)
       setCurrentIndex(0)
-      setItemsShownInCurrentCategory(0) // Reset counter when loading new category items
+      // Only reset counter if this is a NEW category, not when reloading the same one
+      if (currentCategory !== category) {
+        setItemsShownInCurrentCategory(0) // Reset counter when loading new category items
+      }
       setDirection(null) // Clear direction when loading new items
     } catch (error) {
       console.error('Error getting recommendations:', error)
@@ -197,10 +200,14 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
       const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
       setItemsInCurrentCategory(shuffled)
       setDirection(null) // Clear direction on error too
+      // Only reset counter if this is a NEW category
+      if (currentCategory !== category) {
+        setItemsShownInCurrentCategory(0)
+      }
     } finally {
       setIsAnalyzing(false)
     }
-  }, [token, swipedItemIds, wishlist, rejectedItems])
+  }, [token, swipedItemIds, wishlist, rejectedItems, currentCategory]) // Add currentCategory to dependencies
 
   // Fetch items from API
   useEffect(() => {
