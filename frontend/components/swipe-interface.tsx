@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { X, Heart, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/contexts/auth-context'
+import { authenticatedFetch } from '@/lib/api-client'
 
 interface FashionItem {
   id: string
@@ -27,21 +29,65 @@ interface SwipeInterfaceProps {
 }
 
 export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems = [] }: SwipeInterfaceProps) {
-  const [fashionItems, setFashionItems] = useState<FashionItem[]>([])
+  const { token, isAuthenticated } = useAuth()
   const [itemsByCategory, setItemsByCategory] = useState<Record<string, FashionItem[]>>({})
   const [loading, setLoading] = useState(true)
+  
+  // Load swiped items from database
   const [swipedItemIds, setSwipedItemIds] = useState<Set<string>>(new Set())
   const [currentIndex, setCurrentIndex] = useState(0)
+  const [currentCategory, setCurrentCategory] = useState<string | null>(null)
+  
   const [direction, setDirection] = useState<'left' | 'right' | null>(null)
   const [isDetailsExpanded, setIsDetailsExpanded] = useState(false)
-  const [currentCategory, setCurrentCategory] = useState<string | null>(null)
   const [itemsInCurrentCategory, setItemsInCurrentCategory] = useState<FashionItem[]>([])
   const [allItemsInCategory, setAllItemsInCategory] = useState<FashionItem[]>([])
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isProcessingAction, setIsProcessingAction] = useState(false)
+  const [itemsShownInCurrentCategory, setItemsShownInCurrentCategory] = useState(0)
+  const ITEMS_PER_CATEGORY = 5 // Switch category after showing this many items
+
+  // Load swiped items from database on mount
+  useEffect(() => {
+    if (!isAuthenticated || !token) return
+
+    const loadSwipedItems = async () => {
+      try {
+        const response = await authenticatedFetch('/api/user/swiped', { method: 'GET' }, token)
+        if (response.ok) {
+          const data = await response.json()
+          setSwipedItemIds(new Set(data.swipedItems || []))
+        }
+      } catch (error) {
+        console.error('Error loading swiped items:', error)
+      }
+    }
+
+    loadSwipedItems()
+  }, [isAuthenticated, token])
+
+  // Save swiped item to database
+  const saveSwipedItem = async (itemId: string) => {
+    if (!token) return
+
+    try {
+      await authenticatedFetch(
+        '/api/user/swiped',
+        {
+          method: 'POST',
+          body: JSON.stringify({ itemId }),
+        },
+        token
+      )
+    } catch (error) {
+      console.error('Error saving swiped item:', error)
+    }
+  }
 
   // Load all items for a category, sorted by similarity score
-  const loadCategoryItems = useCallback(async (category: string, allItems: FashionItem[]) => {
+  const loadCategoryItems = useCallback(async (category: string, allItems: FashionItem[], wishlistItems?: any[], rejectedItemsList?: any[]) => {
+    const wishlistToUse = wishlistItems ?? wishlist
+    const rejectedToUse = rejectedItemsList ?? rejectedItems
     // Filter out already swiped items first
     const availableItems = allItems.filter(item => !swipedItemIds.has(item.id))
     
@@ -53,19 +99,25 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
     // Don't use cache - recalculate similarity for each category
     setIsAnalyzing(true)
     
+    if (!token) {
+      setIsAnalyzing(false)
+      return
+    }
+    
     try {
-      const response = await fetch('/api/recommend', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await authenticatedFetch(
+        '/api/recommend',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            allItemsInCategory: availableItems, // Only send available items
+            wishlist: wishlistToUse,
+            rejectedItems: rejectedToUse, // Include rejected items to avoid similar ones
+            category: category, // Include category to ensure recalculation
+          }),
         },
-        body: JSON.stringify({
-          allItemsInCategory: availableItems, // Only send available items
-          wishlist: wishlist,
-          rejectedItems: rejectedItems, // Include rejected items to avoid similar ones
-          category: category, // Include category to ensure recalculation
-        }),
-      })
+        token
+      )
 
       if (!response.ok) {
         console.error('Failed to get recommendations')
@@ -90,7 +142,6 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
       // Map scored items back to full item objects
       const itemMap = new Map(availableItems.map((item: FashionItem) => [item.id, item]))
       const sortedItems: FashionItem[] = []
-      const autoRejectedIds: string[] = []
       
       // Threshold for automatic rejection
       // Items with score below this threshold are automatically rejected
@@ -105,9 +156,8 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
         
         // Automatically reject items with low scores
         if (score < REJECTION_THRESHOLD) {
-          autoRejectedIds.push(item.id)
           // Automatically add to rejected items if onReject callback exists
-          if (onReject && wishlist.length > 0) {
+          if (onReject && wishlistToUse.length > 0) {
             // Only auto-reject if user has a wishlist (meaningful scores)
             onReject(item)
           }
@@ -120,13 +170,10 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
         }
       }
       
-      if (autoRejectedIds.length > 0) {
-        console.log(`[loadCategoryItems] Auto-rejected ${autoRejectedIds.length} items with score < ${REJECTION_THRESHOLD}`)
-      }
 
       // If no wishlist items, show all items in random order
       // If wishlist exists but no good matches found, show top items anyway
-      if (sortedItems.length === 0 && wishlist.length > 0) {
+      if (sortedItems.length === 0 && wishlistToUse.length > 0) {
         // Fallback: show items even with low scores if no good matches
         for (const { id, score } of items) {
           const item = itemMap.get(id)
@@ -134,15 +181,15 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
             sortedItems.push(item)
           }
         }
-      } else if (sortedItems.length === 0 && wishlist.length === 0) {
+      } else if (sortedItems.length === 0 && wishlistToUse.length === 0) {
         // No wishlist: show all items in random order
         const shuffled = [...availableItems].sort(() => Math.random() - 0.5)
         sortedItems.push(...shuffled)
       }
 
-      console.log(`[loadCategoryItems] Category: ${category}, Setting ${sortedItems.length} items sorted by similarity score`)
       setItemsInCurrentCategory(sortedItems)
       setCurrentIndex(0)
+      setItemsShownInCurrentCategory(0) // Reset counter when loading new category items
       setDirection(null) // Clear direction when loading new items
     } catch (error) {
       console.error('Error getting recommendations:', error)
@@ -153,7 +200,7 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
     } finally {
       setIsAnalyzing(false)
     }
-  }, [wishlist, swipedItemIds])
+  }, [token, swipedItemIds, wishlist, rejectedItems])
 
   // Fetch items from API
   useEffect(() => {
@@ -162,19 +209,45 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
         const response = await fetch('/api/items')
         const data = await response.json()
         if (data.items && data.itemsByCategory) {
-          setFashionItems(data.items)
           setItemsByCategory(data.itemsByCategory)
           
-          // Initialize with first category that has items
-          const categories = Object.keys(data.itemsByCategory).sort()
-          for (const category of categories) {
-            const items = data.itemsByCategory[category] || []
-            if (items.length > 0) {
-              setCurrentCategory(category)
-              setAllItemsInCategory(items)
-              // Get 3 recommended items for this category
-              loadCategoryItems(category, items)
-              break
+          // Check if we have a saved category and it still has items
+          if (currentCategory && data.itemsByCategory[currentCategory]) {
+            const savedCategoryItems = data.itemsByCategory[currentCategory] || []
+            const availableInSavedCategory = savedCategoryItems.filter((item: FashionItem) => !swipedItemIds.has(item.id))
+            
+            if (availableInSavedCategory.length > 0) {
+              // Resume from saved category
+              setAllItemsInCategory(savedCategoryItems)
+              loadCategoryItems(currentCategory, savedCategoryItems, wishlist, rejectedItems)
+            } else {
+              // Saved category is exhausted, find next category
+              const categories = Object.keys(data.itemsByCategory).sort()
+              for (const category of categories) {
+                const items = data.itemsByCategory[category] || []
+                const availableItems = items.filter((item: FashionItem) => !swipedItemIds.has(item.id))
+                if (availableItems.length > 0) {
+                  setCurrentCategory(category)
+                  setAllItemsInCategory(items)
+                  setCurrentIndex(0) // Reset index for new category
+                  loadCategoryItems(category, items, wishlist, rejectedItems)
+                  break
+                }
+              }
+            }
+          } else {
+            // No saved category, initialize with first category that has items
+            const categories = Object.keys(data.itemsByCategory).sort()
+            for (const category of categories) {
+              const items = data.itemsByCategory[category] || []
+              const availableItems = items.filter((item: FashionItem) => !swipedItemIds.has(item.id))
+              if (availableItems.length > 0) {
+                setCurrentCategory(category)
+                setAllItemsInCategory(items)
+                setCurrentIndex(0)
+                loadCategoryItems(category, items)
+                break
+              }
             }
           }
         }
@@ -185,29 +258,9 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
       }
     }
     fetchItems()
-  }, [loadCategoryItems])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentCategory, swipedItemIds.size])
 
-  // Recalculate recommendations when wishlist or rejected items change (real-time updates)
-  // Use refs to track previous lengths to avoid unnecessary recalculations
-  const prevWishlistLengthRef = useRef(wishlist.length)
-  const prevRejectedLengthRef = useRef(rejectedItems.length)
-  
-  useEffect(() => {
-    // Only recalculate if wishlist or rejected items length actually changed
-    const wishlistChanged = prevWishlistLengthRef.current !== wishlist.length
-    const rejectedChanged = prevRejectedLengthRef.current !== rejectedItems.length
-    
-    if ((wishlistChanged || rejectedChanged) && currentCategory && allItemsInCategory.length > 0 && !isAnalyzing) {
-      console.log('[useEffect] Wishlist or rejected items changed, recalculating recommendations for current category')
-      prevWishlistLengthRef.current = wishlist.length
-      prevRejectedLengthRef.current = rejectedItems.length
-      loadCategoryItems(currentCategory, allItemsInCategory)
-    } else if (wishlistChanged || rejectedChanged) {
-      // Update refs even if we don't recalculate
-      prevWishlistLengthRef.current = wishlist.length
-      prevRejectedLengthRef.current = rejectedItems.length
-    }
-  }, [wishlist.length, rejectedItems.length, currentCategory, allItemsInCategory.length, isAnalyzing]) // Recalculate when wishlist or rejected items change
 
   // Get available items for current category (not swiped)
   const availableItemsInCategory = itemsInCurrentCategory.filter(item => !swipedItemIds.has(item.id))
@@ -262,11 +315,12 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
       setCurrentCategory(next.category)
       setAllItemsInCategory(next.allItems)
       setCurrentIndex(0)
+      setItemsShownInCurrentCategory(0) // Reset counter for new category
       setDirection(null) // Clear direction when moving to next category
-      // Load 3 recommended items for next category (only from available items)
-      loadCategoryItems(next.category, next.availableItems)
+      // Load recommended items for next category (only from available items)
+      loadCategoryItems(next.category, next.availableItems, wishlist, rejectedItems)
     }
-  }, [findNextCategoryWithItems, loadCategoryItems])
+  }, [findNextCategoryWithItems, loadCategoryItems, wishlist, rejectedItems])
 
   // Auto-move to next category when current category is exhausted
   useEffect(() => {
@@ -325,8 +379,8 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
     setIsDetailsExpanded(!isDetailsExpanded)
   }
 
-  const handleAction = (action: 'like' | 'dislike', event?: React.MouseEvent) => {
-    if (!currentItem || isProcessingAction) return
+  const handleAction = async (action: 'like' | 'dislike', event?: React.MouseEvent) => {
+    if (!currentItem || isProcessingAction || !token) return
     
     // Prevent event propagation to avoid accidental triggers
     if (event) {
@@ -340,8 +394,10 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
     const dir = action === 'like' ? 'right' : 'left'
     setDirection(dir)
     
-    // Mark item as swiped
-    setSwipedItemIds(prev => new Set([...prev, currentItem.id]))
+    // Mark item as swiped and save to database
+    const newSwipedSet = new Set([...swipedItemIds, currentItem.id])
+    setSwipedItemIds(newSwipedSet)
+    saveSwipedItem(currentItem.id)
     
     // Right = Like, Left = Reject
     if (action === 'like') {
@@ -349,6 +405,9 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
     } else if (action === 'dislike' && onReject) {
       onReject(currentItem)
     }
+    
+    // Increment items shown in current category
+    const newItemsShown = itemsShownInCurrentCategory + 1
     
     // Animate card off screen, then move to next card
     setTimeout(() => {
@@ -358,13 +417,19 @@ export function SwipeInterface({ onLike, onReject, wishlist = [], rejectedItems 
       // Exclude the current item (which we just swiped) from the count
       const currentItemId = currentItem.id
       const remainingItems = itemsInCurrentCategory.filter(
-        item => item.id !== currentItemId && !swipedItemIds.has(item.id)
+        item => item.id !== currentItemId && !newSwipedSet.has(item.id)
       )
-      if (remainingItems.length <= 0) {
+      
+      // Switch to next category if:
+      // 1. We've shown enough items in this category (ITEMS_PER_CATEGORY), OR
+      // 2. No items left in current category
+      if (newItemsShown >= ITEMS_PER_CATEGORY || remainingItems.length <= 0) {
         // Move to next category (will loop back to first if needed)
+        setItemsShownInCurrentCategory(0)
         moveToNextCategory()
       } else {
-        // Stay at index 0 - the next item will be there after filtering
+        // Stay in current category, increment counter
+        setItemsShownInCurrentCategory(newItemsShown)
         setCurrentIndex(0)
       }
       setDirection(null)

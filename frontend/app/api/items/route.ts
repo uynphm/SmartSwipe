@@ -223,8 +223,6 @@ export async function GET() {
       itemsByCategory[category].push(item)
     }
     
-    console.log(`Loaded ${items.length} items from dataset across ${Object.keys(itemsByCategory).length} categories`)
-    
     return NextResponse.json({ items, itemsByCategory })
   } catch (error) {
     console.error('Error scanning images:', error)
