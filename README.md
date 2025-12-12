@@ -22,7 +22,7 @@ A modern fashion discovery app that uses AI-powered recommendations and outfit g
 ### Backend & AI
 - **MobileNetV2** - Pre-trained CNN for image feature extraction
 - **TensorFlow/Keras** - Deep learning framework
-- **Groq API** - Fast LLM inference for outfit generation (Llama 3.3 70B)
+- **Groq API** - Fast LLM inference for outfit generation
 - **Cosine Similarity** - Vector similarity for recommendations
 
 ### Database & Auth
@@ -127,30 +127,9 @@ When you swipe and like/reject items, the system uses these pre-computed embeddi
 
 1. Your liked items are sent to Groq's Llama 3.3 70B model
 2. The AI analyzes item categories and creates coordinated outfits
-3. Returns 2-5 items that work well together (only one item per category)
+3. Returns 2-5 items that work well together
 4. Each generation varies due to high temperature (0.9) setting
 5. Includes reasoning explaining why the items work together
-
-**For a detailed technical explanation, see [EXPLANATION.md](./EXPLANATION.md) or [CODE_FLOW.md](./CODE_FLOW.md)**
-
-## API Endpoints
-
-### Public Endpoints
-- `GET /api/items` - Get all fashion items
-- `GET /api/images/[...id]` - Serve item images
-- `POST /api/auth/signup` - Create account
-- `POST /api/auth/login` - Login
-
-### Protected Endpoints (Require JWT Token)
-- `POST /api/recommend` - Get personalized recommendations
-- `POST /api/generate-outfit` - Generate AI outfit
-- `GET /api/user/wishlist` - Get user's wishlist
-- `POST /api/user/wishlist` - Add to wishlist
-- `DELETE /api/user/wishlist` - Remove from wishlist
-- `GET /api/user/rejected` - Get rejected items
-- `POST /api/user/rejected` - Add rejected item
-- `GET /api/user/swiped` - Get swiped items
-- `POST /api/user/swiped` - Add swiped item
 
 ## Troubleshooting
 
