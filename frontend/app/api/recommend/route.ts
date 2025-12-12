@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
+import { verifyToken, getTokenFromRequest } from '@/lib/auth'
 
 interface FashionItem {
   id: string
@@ -27,10 +28,6 @@ function loadImageFeatures(): Map<string, number[]> {
     for (const [imageId, features] of Object.entries(featuresData)) {
       featuresMap.set(imageId, features as number[])
     }
-    console.log(`[loadImageFeatures] Loaded ${featuresMap.size} image features from ${path}`)
-    // Log sample keys to verify format
-    const sampleKeys = Array.from(featuresMap.keys()).slice(0, 3)
-    console.log(`[loadImageFeatures] Sample feature keys: ${sampleKeys.join(', ')}`)
     return featuresMap
   }
   
@@ -59,12 +56,10 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
 // Get feature vectors for wishlist items
 function getWishlistFeatures(wishlist: FashionItem[], featuresMap: Map<string, number[]>): Array<{ item: FashionItem, features: number[] }> {
   if (!wishlist || wishlist.length === 0) {
-    console.log('[getWishlistFeatures] No wishlist provided')
     return []
   }
   
   const wishlistFeatures: Array<{ item: FashionItem, features: number[] }> = []
-  const missingItems: string[] = []
   
   for (const item of wishlist) {
     // Extract image ID from item (format: category/uuid)
@@ -74,21 +69,7 @@ function getWishlistFeatures(wishlist: FashionItem[], featuresMap: Map<string, n
     
     if (features) {
       wishlistFeatures.push({ item, features })
-      console.log(`[getWishlistFeatures] Found features for wishlist item: ${imageId}`)
-    } else {
-      missingItems.push(imageId)
-      console.log(`[getWishlistFeatures] Missing features for wishlist item: ${imageId}`)
     }
-  }
-  
-  if (wishlistFeatures.length === 0) {
-    console.log(`[getWishlistFeatures] No valid features found. Missing: ${missingItems.join(', ')}`)
-    console.log(`[getWishlistFeatures] Features map has ${featuresMap.size} entries`)
-    // Log first few keys to see format
-    const sampleKeys = Array.from(featuresMap.keys()).slice(0, 5)
-    console.log(`[getWishlistFeatures] Sample feature keys: ${sampleKeys.join(', ')}`)
-  } else {
-    console.log(`[getWishlistFeatures] Using ${wishlistFeatures.length} wishlist items for similarity search`)
   }
   
   return wishlistFeatures
@@ -103,7 +84,20 @@ function getRejectedFeatures(rejectedItems: FashionItem[], featuresMap: Map<stri
   const rejectedFeatures: Array<{ item: FashionItem, features: number[] }> = []
   
   for (const item of rejectedItems) {
-    const imageId = item.image.replace('/api/images/', '').replace(/\.(jpg|jpeg)$/i, '')
+    // Handle items that might only have an id (from database)
+    // ID format is "category/uuid", which matches the image ID format
+    let imageId: string
+    if (item.image) {
+      // Full item object with image path
+      imageId = item.image.replace('/api/images/', '').replace(/\.(jpg|jpeg)$/i, '')
+    } else if (item.id) {
+      // Item with only ID - use ID directly (format: "category/uuid")
+      imageId = item.id
+    } else {
+      // Skip items without image or id
+      continue
+    }
+    
     const features = featuresMap.get(imageId)
     
     if (features) {
@@ -230,17 +224,6 @@ function findSimilarItems(
     aggregatedScores.push({ id: itemId, score: finalScore })
   }
   
-  console.log(`[findSimilarItems] Scored ${itemsWithFeatures} items with features, ${itemsWithoutFeatures} without`)
-  if (aggregatedScores.length > 0) {
-    const validScores = aggregatedScores.map(s => s.score).filter(s => s > -1)
-    if (validScores.length > 0) {
-      const minScore = Math.min(...validScores)
-      const maxScore = Math.max(...validScores)
-      const avgScore = validScores.reduce((a, b) => a + b, 0) / validScores.length
-      console.log(`[findSimilarItems] Score range: ${minScore.toFixed(4)} to ${maxScore.toFixed(4)}, avg: ${avgScore.toFixed(4)}`)
-      console.log(`[findSimilarItems] Liked items: ${wishlistFeatures.length}, Computing similarity to each candidate`)
-    }
-  }
   
   // Sort by similarity (highest first)
   aggregatedScores.sort((a, b) => b.score - a.score)
@@ -269,6 +252,17 @@ export async function POST(request: Request) {
   let allItemsInCategory: FashionItem[] = []
   
   try {
+    // Require authentication
+    const token = getTokenFromRequest(request)
+    if (!token) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const decoded = verifyToken(token)
+    if (!decoded) {
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
+    }
+
     const body = await request.json()
     allItemsInCategory = body.allItemsInCategory
     const { wishlist, rejectedItems, category } = body
@@ -302,8 +296,6 @@ export async function POST(request: Request) {
     // Get rejected items feature vectors
     const rejectedFeatures = getRejectedFeatures(rejectedItems || [], featuresMap)
     
-    console.log(`[POST /api/recommend] Category: ${category}, Items: ${allItemsInCategory.length}, Wishlist: ${wishlist?.length || 0}, Rejected: ${rejectedItems?.length || 0}, Valid wishlist features: ${wishlistFeatures.length}, Valid rejected features: ${rejectedFeatures.length}`)
-    
     // Find similar items - returns ALL items sorted by score
     // For each liked item, compute similarity to all candidates, then aggregate
     // Penalize items similar to rejected items
@@ -315,14 +307,6 @@ export async function POST(request: Request) {
       new Set() // No exclusions at this level (handled in frontend)
     )
 
-    // Log top 5 items with their scores for debugging
-    if (scoredItems.length > 0) {
-      const top5 = scoredItems.slice(0, 5)
-      console.log(`[POST /api/recommend] Top 5 items by score:`)
-      top5.forEach((item, idx) => {
-        console.log(`  ${idx + 1}. ${item.id}: ${item.score.toFixed(4)}`)
-      })
-    }
 
     // Return ALL items with their scores, sorted by similarity
     return NextResponse.json({ 

@@ -9,7 +9,6 @@ A modern fashion discovery app that uses AI-powered recommendations and outfit g
 - **Swipe Interface**: Tinder-like interface for browsing fashion items by category
 - **Wishlist**: Save your favorite items to your personal wishlist (synced across devices)
 - **AI Outfit Generator**: Generate coordinated outfits from your liked items using Groq's Llama model
-- **Modern UI**: Beautiful, responsive interface with dark mode support
 - **Real-time Updates**: Recommendations update in real-time as you like or reject items
 - **Database Persistence**: All user data stored in Supabase (wishlist, rejected items, swiped items)
 
@@ -19,9 +18,6 @@ A modern fashion discovery app that uses AI-powered recommendations and outfit g
 - **Next.js 16** - React framework with App Router
 - **TypeScript** - Type-safe development
 - **Tailwind CSS** - Utility-first styling
-- **Framer Motion** - Smooth animations
-- **Radix UI** - Accessible component primitives
-- **shadcn/ui** - High-quality component library
 
 ### Backend & AI
 - **MobileNetV2** - Pre-trained CNN for image feature extraction
@@ -67,6 +63,8 @@ python extract-image-features.py
 
 This will process all images in `dataset/dataset_clothing_images/` and generate `dataset/image_features.json` containing 1280-dimensional feature vectors for each image.
 
+**Note:** The CSV files (e.g., `dress_analysis.csv`, `hat_analysis.csv`) in the dataset directory contain item metadata (brand, style, material, description, tags) that is used for displaying item information in the UI. These CSV files are **not** used for recommendations - only the image embeddings are used for visual similarity calculations.
+
 ### 3. Set Up Supabase Database
 
 1. Create a Supabase project at [supabase.com](https://supabase.com)
@@ -93,8 +91,6 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-**Note:** You'll be redirected to the login page. Create an account or login to access the app.
-
 ## How It Works
 
 ### Authentication & Data Storage
@@ -104,28 +100,38 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 3. JWT tokens are used for authenticated API requests
 4. Data persists across devices and browser sessions
 
-### Image Embeddings
+### Image Embeddings (Pre-processing Phase)
 
-The system uses **MobileNetV2** (pre-trained on ImageNet) to extract visual features from fashion item images. These embeddings are:
+The system uses **MobileNetV2** (pre-trained on ImageNet) to extract visual features from fashion item images. During setup, a Python script processes all images:
 
-- **Created by the project** - Generated specifically for your dataset
-- **1280-dimensional vectors** - Capturing visual patterns and styles
-- **Used for similarity** - Cosine similarity between vectors finds visually similar items
+- **Pre-trained Model**: MobileNetV2 was trained on millions of images from ImageNet
+- **Feature Extraction**: Each clothing image is converted to a 1280-dimensional feature vector (embedding)
+- **What Embeddings Capture**: Visual patterns (stripes, solids, patterns), colors, textures, shapes, and style characteristics
+- **Storage**: Embeddings are pre-computed once and saved to `dataset/image_features.json`
+- **Format**: Each image is mapped as `"category/uuid": [1280 numbers]`
 
-### Recommendation System
+### Recommendation System (Real-time Phase)
 
-1. When you like items, their embeddings are extracted
-2. The system calculates cosine similarity between liked items and all available items
-3. Items similar to your likes are ranked higher
-4. Items similar to your rejections are penalized
-5. Recommendations update in real-time as you interact
+When you swipe and like/reject items, the system uses these pre-computed embeddings to find visually similar items:
+
+1. **Similarity Calculation**: For each candidate item, the system calculates cosine similarity between its embedding and all your liked items' embeddings
+2. **Scoring**: Cosine similarity returns a score from 0.0 (completely different) to 1.0 (identical)
+3. **Aggregation**: The system averages similarity scores across all liked items to get an overall preference score
+4. **Penalization**: Items similar to rejected items get their scores reduced (penalty = similarity_to_rejected × 0.5)
+5. **Ranking**: Items are sorted by final score, with the most visually similar items appearing first
+6. **Category Rotation**: Shows 5 items per category before switching to the next category for variety
+
+**Why It Works**: The system learns your style preferences purely from visual patterns, without needing explicit tags or metadata. Items with similar visual characteristics (colors, patterns, textures) to what you like will be recommended.
 
 ### Outfit Generation
 
 1. Your liked items are sent to Groq's Llama 3.3 70B model
 2. The AI analyzes item categories and creates coordinated outfits
-3. Returns 2-5 items that work well together
+3. Returns 2-5 items that work well together (only one item per category)
 4. Each generation varies due to high temperature (0.9) setting
+5. Includes reasoning explaining why the items work together
+
+**For a detailed technical explanation, see [EXPLANATION.md](./EXPLANATION.md) or [CODE_FLOW.md](./CODE_FLOW.md)**
 
 ## API Endpoints
 
